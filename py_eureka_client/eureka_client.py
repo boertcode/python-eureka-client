@@ -24,6 +24,7 @@ SOFTWARE.
 
 
 import asyncio
+import atexit
 
 import json
 import re
@@ -1114,7 +1115,7 @@ async def init_async(eureka_server: str = _DEFAULT_EUREKA_SERVER_URL,
     Initialize an EurekaClient object and put it to cache, you can use a set of functions to do the service.
 
     Unlike using EurekaClient class that you need to start and stop the client object by yourself, this method 
-    will start the client automatically after the object created.
+    will start the client automatically after the object created and stop it when the program exits.
 
     read EurekaClient for more information for the parameters details.
     """
@@ -1265,7 +1266,7 @@ def init(eureka_server: str = _DEFAULT_EUREKA_SERVER_URL,
     Initialize an EurekaClient object and put it to cache, you can use a set of functions to do the service.
 
     Unlike using EurekaClient class that you need to start and stop the client object by yourself, this method 
-    will start the client automatically after the object created.
+    will start the client automatically after the object created and stop it when the program exits.
 
     read EurekaClient for more information for the parameters details.
     """
@@ -1330,3 +1331,23 @@ def do_service(app_name: str = "", service: str = "", return_type: str = "string
 
 def stop() -> None:
     get_event_loop().run_until_complete(stop_async())
+
+
+class _ExitEventLoop(asyncio.SelectorEventLoop):
+    """
+    The default executor is shut down when the program exits, so resolve host names without it.
+    """
+
+    async def getaddrinfo(self, host, port, *, family=0, type=0, proto=0, flags=0):
+        return socket.getaddrinfo(host, port, family, type, proto, flags)
+
+
+@atexit.register
+def _cleanup_before_exit():
+    if len(__cache_clients) > 0:
+        _logger.debug("cleaning up clients")
+        loop = _ExitEventLoop()
+        for k, cli in __cache_clients.items():
+            _logger.debug(f"try to stop cache client [{k}] this will also unregister this client from the eureka server")
+            loop.run_until_complete(cli.stop())
+        loop.close()
